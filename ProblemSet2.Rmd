@@ -1,0 +1,347 @@
+---
+title: "The attributes that have impact on people’s satisfaction of life in Canada"
+author: "Jiaxin Cheng(1003970241), Shilun Dai(1005414767), Tony Chen(1004265298), Weiqian Ding(1004708426)"
+date: "2020/10/19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(survey)
+library(nlme)
+library(knitr)
+library(ggpubr)
+
+data <- read_csv('gss.csv')
+gss <- data %>% 
+  dplyr::select(feelings_life, age, pop_center,sex, 
+                religion_participation,marital_status, education, 
+                province,hh_size, average_hours_worked,income_respondent) %>% 
+  filter(feelings_life!='NA',religion_participation!='NA',religion_participation!='Don\'t know')
+
+str(gss)
+
+gss$pop_center <- as.factor(gss$pop_center)
+gss$sex <- as.factor(gss$sex)
+gss$religion_participation <- as.factor(gss$religion_participation)
+gss$marital_status <- as.factor(gss$marital_status)
+gss$education <- as.factor(gss$education)
+gss$province <- as.factor(gss$province)
+```
+## Abstract
+We are interested about the living conditions and well-being of Canadians, so we look at the survey data for 20,602 Canadians about their life satisfaction in 2017. We used a given set of attributes to build a multiple linear regression model to analyze Canadians' sense of satisfaction of their lives. Many variables like marital status,religious participation and income level have a significant impact on Canadians’ life satisfaction. Canadians can use the result to help them understand what really influences their life satisfaction and thus have the ability to improve their quality of life rationally. 
+
+
+## Introduction
+Nowadays, people are pursuing a high quality of life. However, people may have no idea about how to improve their level of happiness and satisfaction in life. The goal for this report is to analyze what attributes will have impacts on people’s feeling of life. We did some data processing and created a new data set in RStudio. Based on our data set, we built a multiple linear regression model to explain the predictor of feelings_life(life satisfaction) by various explanatory variables. By using the stratified sampling method, we found that religion participation, income, marital status and other seven variables are the main attributes that have impacts on people’s feeling of life. Therefore, people may use our conclusion to improve their quality of life. In this report, we will first introduce the data, build and analyse our multiple linear regression model, and then show the result, followed by the discussion of model distributions.
+
+
+## Data
+We obtained the data set “General Society Survey''(2017) on the CHASS website. The target population for this data is “all persons 15 years of age and older in Canada, excluding residents of the Yukon, Northwest Territories, and Nunavut, and Full-time residents of institutions”(Beaupre, 2017). The target frame is the “lists of telephone numbers in use (both landline and cellular) available to Statistics Canada from various sources (telephone companies, Census of population, etc.) and the Address Register (AR): List of all dwellings within the ten provinces”(Beaupre, 2017). 
+
+People in the target frame will be contacted by telephone and the sample data frame is obtained by the responses. There exist different extents of non-responses. Partial non-responses occur because they refused to answer the questions or they did not understand the question while total non-responses occur because they were unable to contact or no one of the household was able to provide the answer(Beaupre, 2017).
+
+The sampling method for this data set is assigned the survey frame to a stratum within provinces(Beaupre, 2017). And simple random sampling without replacement was done for each stratum(Beaupre, 2017). The total observation of this data is 20,502(Beaupre, 2017). The estimated population size for this survey is 30,302,287(Beaupre, 2017).
+
+
+The survey uses simple random sampling strategy which is good because the observations that are collected will represent the target population more accurately. Another advantage of the survey is that the data set was large with a large number of observations and a large number of variables. Large sample size will provide more accurate estimators to estimate the population. However, the data set only contains the information within Canada. Thus, the model we built will only be applied to estimate the life satisfaction for people living in Canada. 
+
+We selected feelings_life and 10 other variables from the data set to do the analysis(Table 1). Those variables were selected because they contain more valid responses and likely to have relationships with feeling_life. We removed ‘NA’ in ‘feelings_life’ and ‘religion_participation’. We also removed ‘Don’t Know’ in ‘religion_participation’. The total observations in our data sample is 20,130. The total variables in our dataframe is 11. 
+
+‘feelings_life’ is a numerical variable. Respondents will rate their life satisfaction(feelings_life) from 0 to 10. ‘age’ is a numerical variable. ‘pop_center’ is a categorical variable. Respondents select the population center that they belong to. ‘sex’ is a categorical variable. ‘religion_participation’ is a categorical variable. Respondents will choose the frequency that they participate in their religion events. ‘marital_status’ is a categorical variable. ‘education’ is a categorical variable, ‘respondents’ will choose their level of education. ‘province’ is a categorical variable, people will choose the province that they are living in right now. ‘hh_size’ is a numerical variable, it shows the household size of their home. ‘average_hours_worked’ is a numerical variable, it represents the average hours worked per week for the respondent. ‘income_respondent’ is a numerical variable. It represents the income for the respondent per year. 
+
+Here is the table of first six lines of data set: 
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+gss_income <- gss %>% 
+  filter(average_hours_worked!='NA', average_hours_worked!='Don\'t know')
+
+#count(gss_income, average_hours_worked)
+
+work_time <- function(time){
+  if (time == '0 hour'){
+    time=0.01   # so it can be used on denominator
+  }
+  else if (time == '0.1 to 29.9 hours'){
+    time=(0.1+29.9)/2
+  }
+  else if (time == '30.0 to 40.0 hours'){
+    time=(30+40)/2
+  }
+  else if (time == '40.1 to 50.0 hours'){
+    time=(40.1+50)/2
+  }
+  else {time=50.1
+  }
+  return(time)}
+
+work_time_len <- length(gss_income$average_hours_worked)
+work_time_average <- rep(NA, work_time_len)
+
+for (i in 1:work_time_len){
+  work_time_average[i] = work_time(gss_income$average_hours_worked[i])
+}
+
+gss_income <- gss_income %>% mutate(work_time_average)
+
+
+# count(gss_income, income_respondent)
+
+income <- function(income){
+  if (income == 'Less than $25,000'){
+    income=25000
+  }
+  if (income == '$25,000 to $49,999'){
+    income=(25000+49999)/2
+  }
+  if (income == '$50,000 to $74,999'){
+    income=(50000+74999)/2
+  }
+  if (income == '$75,000 to $99,999'){
+    income=(75000+99999)/2
+  }
+  if (income == '$100,000 to $ 124,999'){
+    income=(100000+124999)/2
+  }
+  if (income == '$125,000 and more'){
+    income=125000
+  }
+  return(income)}
+
+income_len <- length(gss_income$income_respondent)
+total_income <- rep(NA, income_len)
+
+for (i in 1:income_len){
+  total_income[i] = income(gss$income_respondent[i])
+}
+
+gss_income <- gss_income %>% 
+  mutate(total_income, average_income=round((total_income/hh_size),2)) %>% 
+  select(-average_hours_worked, -hh_size)
+
+table <- head(gss)
+table1 <- table[0:6]
+table2 <- table[7:11]
+kable(table1)
+kable(table2)
+```
+
+
+The following are the plots of the raw data:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+
+par(mfrow=c(1,3))
+
+boxplot(gss$feelings_life, main='Boxplot for feelings_life')
+boxplot(gss$age, main ='Boxplot for age')
+boxplot(gss$hh_size, main = 'Boxplot for hhsize')
+```
+
+According to the ‘Boxplot for the feelings_life’, the trend for the distribution of feelings_life is left-skewed. 
+
+The following are the bar plot for 8 categorical variables. They are the cumulative frequency graphs.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+p1<-ggplot(gss,aes(average_hours_worked)) + geom_bar(fill = "grey", colour = "black") + theme(axis.text.x = element_text(angle = 35))
+p2<-ggplot(gss,aes(pop_center))+geom_bar(fill = "grey", colour = "black") + theme(axis.text.x = element_text(angle = 35))
+p3<-ggplot(gss,aes(sex))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+p4<-ggplot(gss,aes(marital_status))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+p5<-ggplot(gss,aes(religion_participation))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+p6<-ggplot(gss,aes(education))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+p7<-ggplot(gss,aes(province))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+p8<-ggplot(gss,aes(income_respondent))+geom_bar(fill = "grey", colour = "black")+theme(axis.text.x = element_text(angle = 35))
+
+ggarrange(p1,p2,nrow=1)
+ggarrange(p3,p4,nrow=1)
+ggarrange(p5,p6,nrow=1)
+ggarrange(p7,p8,nrow=1)
+```
+
+
+
+Based on the data set that we selected with feelings_life and 10 other variables. We created a new variable ‘average_income’ by using income_respondent divided by ‘average_hours_worked’  its household size. We did not chose correlated variables(eg. province and region). Our stratified sampling method is conducted by province.
+
+
+## Model
+We continue our analysis by building a multiple linear regression model to predict feelings_life using age, pop_center, sex, religion_participation, marital_status and average_income. We choose this model because the predictor feelings_life is numeric and we believe there exists a linear relationship between explanatory variables and feelings_life. The variables of age and average_income are numeric which represents respondents’ age and the total income of their family per hour per person. Pop_center, sex, religion_participation, marital_status, education and province are categorical variables which represent if they live in urban city or rural areas, respondents’ sex, frequency of participating the religion activities and whether they are married, divorced or single, repectively, while education means the highest level of education respondents get and province is simply the residence of respondents. 
+
+Using the data selected, we build a linear regression model with the following formula:
+$$
+y_i = \beta_0 + \beta_1 x_{age,i}+ \beta_2x_{pop\_center\_island,i}+\beta_3x_{pop\_center\_rural,i}+\beta_4x_{marital\_status\_common,i}
+$$
+$$
++\beta_5x_{marital\_status\_married,i}
++\beta_6x_{marital\_status\_separated,i}+\beta_7x_{marital\_status\_single,i}
++\beta_8x_{marital\_widowed,i}
+$$
+$$
++\beta_9x_{sex\_m, i}+\beta_{10}x_{religion\_monthly, i}+\beta_{11}x_{religion\_weekly, i}+\beta_{12}x_{religion\_never, i}+\beta_{13}x_{religion\_yearly, i}+\beta_{14}x_{edu\_college, i}
+$$
+$$
++\beta_{15}x_{edu\_highschool, i}+\beta_{16}x_{edu\_lowlevel, i}+\beta_{17}x_{edu\_trade, i}+\beta_{18}x_{edu\_belowbachelor, i}+\beta_{19}x_{edu\_abovebachelor, i}
+$$
+$$
++\beta_{20}x_{province\_BC, i}+\beta_{21}x_{province\_Manitoba, i}+\beta_{22}x_{province\_NB, i}+\beta_{23}x_{province\_NL, i}+\beta_{24}x_{province\_NS, i}
+$$
+$$
++\beta_{25}x_{province\_ON, i}+\beta_{26}x_{province\_island, i}+\beta_{27}x_{province\_Quebec, i}+\beta_{28}x_{province\_Saskatchewan, i}+\beta_{29}x_{average\_income, i}+\epsilon_i
+$$
+
+
+$\beta_0$ is the coefficient of intercept. Other $\beta$s are the coefficients of corresponding variables. For numeric variables, $x_{age,i}$ represents the age of respondents and $x_{average\_income, i}$ is the average income of respondents' family per hour per person. For categorical variables, $x_{pop\_island,i}$ means whether the respondents live in Prince Edward Island or not. The variable is equal to 1 if the respondent lives there and is 0 otherwise. Same with all other categorical attributes. Finally $\epsilon_i$ is the error of our model.
+
+In this model, we choose age and sex as explanatory variable instead of other variables related to age and sex because there are less missing value and $NA$s in these two variables. Province is a key variable since we do stratified sampling and treat respondents in different provinces as stratas. Average_income is computed as $income_respondent/average_hours_worked/hh_size$, which means the average disposable income of respondents’ family per work time. We also think that marital status, religion_participation and education will influence the quality of life, resulting in the change in the score of feelings_life.
+
+The results of code ran by R is:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+lmfit1 <- lm(feelings_life~age+pop_center+marital_status+sex+religion_participation+education+province+average_income, gss_income)
+coef(summary(lmfit1))
+
+summary(lmfit1)$r.squared
+```
+From the table above, we notice that most p-values of these variables are small, which means the corresponding coefficients are significant. And from the last line, R-squared is computed as 0.06625, representing that 6.625% of variations can be explained by the model. 
+
+Overall, the performance is ok. Even though our r-squared is small, the model can still be well explained because the p-values are significant enough, which means there is no evidence to prove that the coefficients of variables are 0. 
+
+We also have an alternative model which is 
+
+$$
+y_i = \beta_0 + \beta_1 x_{age,i}+ \beta_2x_{pop\_center\_island,i}+\beta_3x_{pop\_center\_rural,i}+\beta_4x_{marital\_status\_common,i}
+$$
+$$
++\beta_5x_{marital\_status\_married,i}
++\beta_6x_{marital\_status\_separated,i}+\beta_7x_{marital\_status\_single,i}
++\beta_8x_{marital\_widowed,i}
+$$
+$$
++\beta_9x_{sex\_m, i}+\beta_{10}x_{province\_BC, i}+\beta_{11}x_{province\_Manitoba, i}+\beta_{12}x_{province\_NB, i}+\beta_{13}x_{province\_NL, i}+\beta_{14}x_{province\_NS, i}
+$$
+
+The explanatory variables are selected from the first model, which are age, pop_center, marital_status, sex and province. We delete those variables with high p values to improve our model.
+
+The results of code ran by R is:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+lmfit2 <- lm(feelings_life~age+pop_center+marital_status+sex+religion_participation+education+province+average_income, gss_income)
+coef(summary(lmfit2))
+
+summary(lmfit2)$r.squared
+
+```
+
+ Compared with the last model, the p values of coefficients are smaller and the p value for the whole model is small as well. It seems like our model has been improved. However, the r-squared computed in the last line becomes 0.05997 and is smaller than before, which means less variations can be explained by the alternative model. It may happens because of the smaller sample size.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 4}
+#gss_income %>% 
+#  group_by(province) %>% 
+#  summarise(n()) 
+
+gss_income$fpc<-
+  ifelse(gss_income$province=='Alberta',1191,
+         ifelse(gss_income$province=='British Columbia',1573,
+                ifelse(gss_income$province=='Manitoba',753,
+                       ifelse(gss_income$province=='New Brunswick',755,
+                              ifelse(gss_income$province=='Newfoundland and Labrador',661,
+                                     ifelse(gss_income$province=='Nova Scotia',840,
+                                            ifelse(gss_income$province=='Ontario',3535,
+                                                   ifelse(gss_income$province=='Prince Edward Island',453,
+                                                          ifelse(gss_income$province=='Quebec',2358,
+                                                                 ifelse(gss_income$province=='Saskatchewan', 754,0))))))))))
+
+
+
+design.strs<-svydesign(id=~1,strata=~province, data=gss_income, fpc=~fpc)
+svyglm.strs <- svyglm(feelings_life~age+pop_center+marital_status+sex+religion_participation+education+province+average_income, design.strs, family="gaussian")
+coef(summary(svyglm.strs))
+```
+
+In this survey, we use a stratified sampling method to divide the sample by province. This sampling method is appropriate because each province has an extremely different sample size. For instance,  there are only 453 respondents selected into our model in Prince Edward Island while there are 3535 in Ontario. By dividing sampling into provinces, it ensures a high degree of representativeness of all the strata in the population. When the population size is weighted in each province, the standard error may be reduced and it gives smaller error in estimation.  From the table ran by R, we see that the p values of variable coefficients are much smaller, which means the variables are more significant than before. 
+
+There are two caveats in this data set. One is that it does not include the respondents outside Canada, which leads to small sample size. Another is that the variable average_income is not accurate. So there will occur some errors in our model. 
+	
+
+## Results
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5}
+gss %>% ggplot(aes(x=feelings_life))+geom_bar(fill = "grey", colour = "black")+labs(caption = "Figure1")+geom_text(stat="count", aes(label=stat(count)), vjust=-0.5)
+```
+By looking at figure1, we find out that most people's life satisfaction value is 8(6160), followed by 10(4591) and 9(3736). (higher value means higher life satisfaction) It means the majority of people have high life satisfaction, and there are only a minority of people who feel so poor about life. 
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 3}
+gss %>% ggplot(aes(x=age)) + geom_histogram(fill = "grey", colour = "black")+labs(caption = "Figure2")
+```
+
+## Figure 3
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 3}
+ccf(gss$feelings_life, gss$age)
+```
+
+Based on figure2 and figure3, we find out that age has no obvious influence on people's life satisfaction since it follows the trend of total population, and they are not highly-correlated. 
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 3}
+gss$religion_participation <- 
+  factor(gss$religion_participation, 
+         levels=c('Not at all', 'Once or twice a year', 'At least 3 times a year', 'At least once a month', 'At least once a week', 'Don\'t know'))
+gss %>% 
+  filter(religion_participation!='Don\'t know') %>% 
+  ggplot(aes(x=religion_participation, y=feelings_life)) + geom_boxplot()+labs(caption = "Figure4")+theme(axis.text.x = element_text(angle = 5))
+```
+
+By looking at the box plot of religion participation in Figure4, we find out that people with frequent religion participation feel happier about life. It is shown that people with frequent religious participation(at least once a month & at least once a week) have higher life satisfaction due to higher median and mean of feelings_life in box plot. 
+
+# Table 1
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height = 3}
+gss_income %>% 
+  group_by(feelings_life) %>% 
+  summarise(mean_income = mean(average_income)) %>% 
+  arrange(desc(mean_income))
+```
+
+Based on table1, we are surprised to find that the group of high income have low satisfaction with life. The mean income of people who have the worst life satisfaction(1) is the highest(44940), and the mean income of people who have the best life satisfaction(9) is the lowest(23799). It means the group of high income tend to have more worries that lead to a decrease in their life satisfaction. 
+
+
+
+## Discussion
+Figure1 shows the number of people for each level of feelings of life from 0 to 10. By the result, we can see that most people's  feeling of life is over 6, while the total number of feelings of life smell or equal 6 is 2579, it is the smell that any number of other levels of  feeling of life. Which 7 is 3060,  8 is 6160, 9 is 3736, 10 is 4591. This can be understood by most people very satisfied with their life, but it also may be because of some misleading survey. 
+
+In Figure 3 shows the ACF between feelings_life and age, it shows that age and feelings_life do not have highly-correlated. In other words, age is not a main variable that affects people’s feelings of life. 
+
+By Figure4, Table 2 and model results, they show there are three main types of variables that have an impact on people’s feeling of life. Which are religion participation, income, and marital status. In Figure4, we can easily see that for religious participation, the majority of people who have religious participation at least once a month and at least once a week, have a feeling of life is higher than 7.5. Which is higher than people who have religious participation less or at least 3 times a year. In Table 2, it shows the mean of income for each level of feeling of life. By results, we can see that as feeling_life increases from 0 to 10, the mean decreases from 44940 to 23907. Lastly, model results show the estimate, t-value and p-value for each variable we use. Compared to other variables, marital status has lowest p-value overall, which is less than 0.001. Therefore, we can say that the relationship between people's life satisfaction and marital status or religious participation are acceptable.
+
+For religion participation and marital status, it is very easy to understand. The goal for religion is to help people become optimistic, to thank everything in our life, so people with frequent religious participation of course will  feel happier about life. And for marital status, since relationship between people is a big part of our life, specifically marital will affect our life most. Income is another variable that has an impact on people’s feeling of life, but different from the other two, the result it shows is surprising to us. Usually, people will believe that higher income will have higher life satisfaction, because they will have more money to buy something they want. But the result shows the opposite way, in which the group of high income have low satisfaction with life. Moreover, when we have those three types of variables, religion participation and marital status is spiritual, income is materially. This tells us what affects happiness is not the material but the mind, and gives us a caveat: “don't be too obsessed with material things”.
+
+However, there may exist some bias in our model. For example, our data of income has “less than 25000”. Since we do not have a specific number, so as we use is data, we assume their income is \$25000. This may get us an error, since if a person’s income is \$0, but based on the data, which we don’t know, we assume that is \$25000. This will give us a big deviation. Moreover, when we calculate their income per hour, it has work hours equal to 0. When we use this data, we change it from 0 to 0.01, so it can be used on a denominator. Since the number we use is enough, we believe the model is acceptable, but it may still have errors in the model.
+
+# Weaknesses
+
+There are three weaknesses of the data, one is data has a small R-squared, which is 0.06625, another is the small sample population and the last one is the inaccurate average income. 
+
+Firstly, r-squared is a goodness-of-fit measure for linear regression models. It  measures the strength of the relationship between the predictor and the dependent variables, which means that the model with higher R-squared is more acceptable for the model. However, small R-squared values are not always a problem, and high R-squared values are not necessarily good. Since the p-level in our model is small as well, which means coefficients of each variable are significant, we believe we can still use the linear regression model to do the analysis. 
+Another weakness is limitations of the sample population. Since the GSS program survey is volunteer-based, most people who have low life quality may not be willing to do the survey, which will make our results biased. 
+
+Last but not least, we only have the data on the range of income instead of accurate income amounts. So when we use average_income to analyze, the mean of income is applied. For example, if the respondent's total income is ‘\$50,000 to \$74,999’, we use \$(50000+74999)/2=$62499.5 as the respondent’s average income. As a result, there may exist errors in our model. 
+
+
+# Next Steps
+
+In order to solve our weakness, there are three things we should do, increase the sample size, make income numbers be more specific in the questionnaire, and add more ways to collect data. About increasing the sample size, we want to change our target population from Canadian to people in the whole world. We will choose some other countries that have the economic environment as Canada, so it will increase our R-squared and our result has higher credibility. Also we want to avoid any error caused by deviation of income, we will try to get a more specific number of income or make the range of each level of income become smaller. Lastly, since most people's life satisfaction value is a high number, we are unsure if it is really because the majority of people have high life satisfaction, or we are missing some type of group of people because of our way to collect data. So we will try to add more ways to collect data, to make sure diversity of the crowd.
+
+## References
+
+1. Alboukadel Kassambara (2020). ggpubr: 'ggplot2' Based Publication Ready Plots. R package version 0.4.0. https://CRAN.R-project.org/package=ggpubr
+2. Beaupre, P. (2017). General Social Survey. https://sda-artsci-utoronto-ca.myaccess.library.utoronto.ca/sdaweb/dli2/gss/gss31/gss31/more_doc/GSS31_User_Guide.pdf. 
+3. Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2020). dplyr: A Grammar of Data Manipulation. R package version 1.0.2. https://CRAN.R-project.org/package=dplyr
+4. Pinheiro J, Bates D, DebRoy S, Sarkar D, R Core Team (2020). _nlme:
+Linear and Nonlinear Mixed Effects Models_. R package version
+3.1-149, <URL: https://CRAN.R-project.org/package=nlme>.
+5. Technology, A. K. through. (2017). Data Centre. CHASS Data Centre. http://dc.chass.utoronto.ca/myaccess.html. 
+6. T. Lumley (2020) "survey: analysis of complex survey samples". R package version 4.0.
+7. Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+8. Yihui Xie (2020). knitr: A General-Purpose Package for Dynamic Report Generation in R. R package version 1.30.
+
+## Appendix
+The link of repository: 'https://github.com/ShilunDai/problemset2_304'
